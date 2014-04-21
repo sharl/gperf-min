@@ -15,7 +15,7 @@ git checkout -- $SOURCE
 KEYWORDS=$(fgrep 'define TOTAL_KEYWORDS' $SOURCE | cut -d' ' -f3)
 MAXLEN=$(fgrep 'define MAX_WORD_LENGTH' $SOURCE | cut -d' ' -f3)
 
-echo $PROG: $SOURCE to $TARGET on $(uname -sm) with $(cc --version | head -1)
+echo $PROG: $SOURCE to $TARGET on $(uname -sm) with $(cc --version | head -1), $(gperf --version | head -1)
 echo TOTAL_KEYWORDS : $KEYWORDS
 echo MAX_WORD_LENGTH: $MAXLEN
 
@@ -84,7 +84,7 @@ compile '-D'
 compile '-D -m10'
 
 # make key combinations, best is 1...$MAXLEN / 2
-#m=$((MAXLEN / 2)
+#m=$((MAXLEN / 2))
 m=3
 keys=$(seq 1 $m | awk 'BEGIN{printf"echo -k"}{printf"{,%s},",$0}END{print"x"}' | bash | sed -e 's/,,*/,/g' -e 's/-k,/-k/g' -e 's/-kx//')
 
