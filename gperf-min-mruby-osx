@@ -5,6 +5,7 @@
 # git clone https://github.com/mruby/mruby
 #
 LANG=C
+PROG=$(basename $0)
 
 TARGET=build/host/src/y.tab.o
 SOURCE=src/lex.def
@@ -13,10 +14,17 @@ git checkout -- $SOURCE
 
 KEYWORDS=$(fgrep 'define TOTAL_KEYWORDS' $SOURCE | cut -d' ' -f3)
 MAXLEN=$(fgrep 'define MAX_WORD_LENGTH' $SOURCE | cut -d' ' -f3)
-WORKDIR=.gperf-min
 
-rm -rf $WORKDIR
-mkdir $WORKDIR
+echo $PROG: $SOURCE to $TARGET on $(uname -sm) with $(cc --version | head -1)
+echo TOTAL_KEYWORDS : $KEYWORDS
+echo MAX_WORD_LENGTH: $MAXLEN
+
+WORKDIR=.gperf-min
+test -d $WORKDIR || mkdir $WORKDIR
+
+function calcSize () {
+    echo $(nm -n $TARGET | grep -A1 "$1") | while read s sy1 ns e sy2 ne; do echo $((0x$e - 0x$s)); done
+}
 
 function compile () {
     opt=$1
@@ -42,45 +50,52 @@ function compile () {
     esac
 
     make > /dev/null
-#
-# OSX LLVM
-#
-# $ nm -n build/host/src/y.tab.o | egrep -A1 's _reserved_word.wordlist|s _reserved_word.lookup|s _hash.asso_values|t _parser_yylex'
-# 0000000000015380 t _parser_yylex
-# 000000000001ba60 t _parse_string
-# --
-# 00000000000af9a0 s _reserved_word.lookup
-# 00000000000af9f0 s _hash.asso_values
-# 00000000000afb00 s _scan_hex.hexdigit
-# --
-# 00000000000b0530 s _reserved_word.wordlist
-# 00000000000b4058 s EH_frame0
-#
+    #
+    # OSX LLVM
+    #
+    # $ nm -n build/host/src/y.tab.o | egrep -A1 's _reserved_word.wordlist|s _reserved_word.lookup|s _hash.asso_values|t _parser_yylex'
+    # 0000000000015380 t _parser_yylex
+    # 000000000001ba60 t _parse_string
+    # --
+    # 00000000000af9a0 s _reserved_word.lookup
+    # 00000000000af9f0 s _hash.asso_values
+    # 00000000000afb00 s _scan_hex.hexdigit
+    # --
+    # 00000000000b0530 s _reserved_word.wordlist
+    # 00000000000b4058 s EH_frame0
+    #
     # parser_yylex() code size with alignment
-    parser_yylex=$(echo $(nm -n $TARGET | grep -A1 " t _parser_yylex") | while read s sy1 ns e sy2 ne; do echo $((0x$e - 0x$s)); done)
+    parser_yylex=$(calcSize " t _parser_yylex")
     # hash().asso_values table size with alignment
-    asso_values=$(echo $(nm -n $TARGET | grep -A1 " s _hash.asso_values") | while read s sy1 ns e sy2 ne; do echo $((0x$e - 0x$s)); done)
+    asso_values=$(calcSize " s _hash.asso_values")
     # mrb_reserved_word().wordlist table size with alignment
-    wordlist=$(echo $(nm -n $TARGET | grep -A1 " s _reserved_word.wordlist") | while read s sy1 ns e sy2 ne; do echo $((0x$e - 0x$s)); done)
+    wordlist=$(calcSize " s _reserved_word.wordlist")
     # mrb_reserved_word().lookup table size with alignment
-    lookup=$(echo $(nm -n $TARGET | grep -A1 " s _reserved_word.lookup") | while read s sy1 ns e sy2 ne; do echo $((0x$e - 0x$s)); done)
+    lookup=$(calcSize " s _reserved_word.lookup")
 
     total=$((parser_yylex + asso_values + wordlist + lookup))
     printf "parser_yylex %04x asso_values %04x wordlist %05x lookup %04x total %6d filesize %d [$opt]\n" \
         $parser_yylex $asso_values $wordlist $lookup $total $(stat -f %z $TARGET)
 }
 
+############################################################
 compile original
 compile '-D'
 compile '-D -m10'
 
-# $MAXLEN
-keys=$(seq 1 3 | awk 'BEGIN{printf"echo -k"}{printf"{,%s},",$0}END{print"x"}' | /bin/bash | sed -e 's/,,*/,/g' -e 's/-k,/-k/g' -e 's/-kx//')
+# make key combinations, best is 1...$MAXLEN / 2
+#m=$((MAXLEN / 2)
+m=3
+keys=$(seq 1 $m | awk 'BEGIN{printf"echo -k"}{printf"{,%s},",$0}END{print"x"}' | bash | sed -e 's/,,*/,/g' -e 's/-k,/-k/g' -e 's/-kx//')
 
-for i in 0 1 2; do
-    for j in 1 3 5; do
-        for k in $keys; do
-            compile "-i$i -j$j $k"
-        done
+for k in $keys; do
+    for s in 1 2 3; do
+	compile "-s$s -m10 $k"
+	for i in 0 1 2; do
+	    for j in 1 3 5; do
+		compile "-s$s -i$i -j$j $k"
+            done
+	done
     done
 done
+############################################################
